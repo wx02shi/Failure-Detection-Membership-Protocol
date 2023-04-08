@@ -229,6 +229,10 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
             memcpy((char *)(callBack+1), &memberNode->addr, sizeof(memberNode->addr));
             memcpy((char *)(callBack+1) + 1 + sizeof(memberNode->addr), &memberNode->heartbeat, sizeof(long));
 
+#ifdef DEBUGLOG
+            log->LOG(&memberNode->addr, "Sending JOINREP call back");
+#endif
+            emulNet->ENsend(&memberNode->addr, addr, (char *)callBack, msgsize);
             break;
         
         case JOINREP:
