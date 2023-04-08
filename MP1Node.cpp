@@ -218,6 +218,17 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
 	/*
 	 * Your code goes here
 	 */
+    MessageHdr *msg = (MessageHdr *)data;
+    
+    switch (msg->msgType) {
+        case JOINREQ:
+            break;
+        case JOINREP:
+            break;
+    }
+
+    delete msg;
+    return true;
 }
 
 /**
