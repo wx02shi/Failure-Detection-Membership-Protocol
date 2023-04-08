@@ -215,20 +215,33 @@ void MP1Node::checkMessages() {
  * DESCRIPTION: Message handler for different message types
  */
 bool MP1Node::recvCallBack(void *env, char *data, int size ) {
-	/*
-	 * Your code goes here
-	 */
     MessageHdr *msg = (MessageHdr *)data;
+    Address *addr = (Address *)(msg + 1);
     
     switch (msg->msgType) {
         case JOINREQ:
+            // Send a call back indicating successful introduction
+            MessageHdr *callBack;
+            size_t msgsize = sizeof(MessageHdr) + sizeof(memberNode->addr) + sizeof(long) + 1;
+            callBack = (MessageHdr *) malloc(msgsize * sizeof(char));
+
+            callBack->msgType = JOINREP;
+            memcpy((char *)(callBack+1), &memberNode->addr, sizeof(memberNode->addr));
+            memcpy((char *)(callBack+1) + 1 + sizeof(memberNode->addr), &memberNode->heartbeat, sizeof(long));
+
             break;
+        
         case JOINREP:
+            memberNode->inGroup = true;
             break;
+        
+        default:
+#ifdef DEBUGLOG
+            log->LOG(&memberNode->addr, "Received an unknown message");
+#endif
     }
 
-    delete msg;
-    return true;
+    free(msg);
 }
 
 /**
