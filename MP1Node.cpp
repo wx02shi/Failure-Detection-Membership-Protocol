@@ -217,6 +217,7 @@ void MP1Node::checkMessages() {
 bool MP1Node::recvCallBack(void *env, char *data, int size ) {
     MessageHdr *msg = (MessageHdr *)data;
     Address *addr = (Address *)(msg + 1);
+    long *heartbeat = (long *)data;
     
     switch (msg->msgType) {
         case JOINREQ:
@@ -233,6 +234,12 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
             log->LOG(&memberNode->addr, "Sending JOINREP call back");
 #endif
             emulNet->ENsend(&memberNode->addr, addr, (char *)callBack, msgsize);
+
+            // Add the new node to this node's member list
+            if (updateMemberList(addr, heartbeat) == true) {
+                // send pings to K random other nodes
+            }
+
             break;
         
         case JOINREP:
@@ -247,6 +254,38 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
 
     free(msg);
 }
+
+/**
+ * FUNCTION NAME: updateMemberList
+ * 
+ * DESCRIPTION: Update a given node's heartbeat in your membership list, or add the node
+ *              to the list if not included already              
+*/
+bool MP1Node::updateMemberList(Address *addr, long *heartbeat) {
+    int id = 0;
+    short port;
+    memcpy(&id, &addr->addr[0], sizeof(int));
+    memcpy(&port, &addr->addr[4], sizeof(short));
+
+    for (auto it = memberNode->memberList.begin(); it != memberNode->memberList.end(); it++) {
+        if (it->getid() == id && it->getport() == port) {
+            if (*heartbeat > it->getheartbeat()) {
+                it->setheartbeat(*heartbeat);
+                it->settimestamp(par->getcurrtime());
+                
+                return true;
+            } else return false;
+        }
+    }
+
+    // Node doesn't exist in the member list. Create an entry for it
+    memberNode->memberList.emplace_back(id, port, *heartbeat, par->getcurrtime());
+#ifdef DEBUGLOG
+    log->logNodeAdd(&memberNode->addr, addr);
+#endif
+    return true;
+}
+
 
 /**
  * FUNCTION NAME: nodeLoopOps
