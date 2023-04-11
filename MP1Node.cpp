@@ -220,7 +220,7 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
     long *heartbeat = (long *)data;
     
     switch (msg->msgType) {
-        case JOINREQ:
+        case JOINREQ: {
             // Send a call back indicating successful introduction
             MessageHdr *callBack;
             size_t msgsize = sizeof(MessageHdr) + sizeof(memberNode->addr) + sizeof(long) + 1;
@@ -241,11 +241,11 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
             }
 
             break;
-        
-        case JOINREP:
+        }
+        case JOINREP: {
             memberNode->inGroup = true;
             break;
-        
+        }
         default:
 #ifdef DEBUGLOG
             log->LOG(&memberNode->addr, "Received an unknown message");
