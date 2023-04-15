@@ -249,7 +249,7 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
 
             break;
         }
-        case PING: {
+        case HEARTBEAT: {
             // Update this node's member list with the sender's heartbeat
             updateMemberList(addr, heartbeat);
 
