@@ -236,15 +236,24 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
             emulNet->ENsend(&memberNode->addr, addr, (char *)callBack, msgsize);
 
             // Add the new node to this node's member list
-            if (updateMemberList(addr, heartbeat) == true) {
-                // send pings to K random other nodes
-            }
+            updateMemberList(addr, heartbeat);
 
             break;
         }
         case JOINREP: {
+            // Confirm successful introduction to the group
             memberNode->inGroup = true;
+
+            // Add the introducer to this node's member list
+            updateMemberList(addr, heartbeat);
+
             break;
+        }
+        case PING: {
+            // Update this node's member list with the sender's heartbeat
+            updateMemberList(addr, heartbeat);
+
+            break; 
         }
         default:
 #ifdef DEBUGLOG
