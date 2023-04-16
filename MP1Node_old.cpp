@@ -11,35 +11,6 @@
  * Note: You can change/add any functions in MP1Node.{h,cpp}
  */
 
-/*
- * Helper utilities
- */
-
-/**
- * FUNCTION NAME: compareMemberToId
- * 
- * DESCRIPTION: A comparator used to determine the correct position to insert a
- *              new node into a member list
- */
-bool compareMemberToId(MemberListEntry entry, int id) {
-    return entry.getid() < id;
-}
-
-/**
- * FUNCTION NAME: logMemberList
- * 
- * DESCRIPTION: Logs a given member list, providing id, heartbeat, and timestamp
- */
-void logMemberList(Log *log, Address *addr, vector<MemberListEntry> *list) {
-    string msg = "[";
-    for (auto it = list->begin(); it != list->end(); it++) {
-        msg += to_string(it->getid()) + ": " + to_string(it->getheartbeat()) + 
-               "(" + to_string(it->gettimestamp()) + "), ";
-    }
-    msg += "]";
-    log->LOG(addr, msg.c_str());
-}
-
 /**
  * Overloaded Constructor of the MP1Node class
  * You can add new members to the class if you think it
@@ -137,9 +108,6 @@ int MP1Node::initThisNode(Address *joinaddr) {
 	memberNode->pingCounter = TFAIL;
 	memberNode->timeOutCounter = -1;
     initMemberListTable(memberNode);
-
-    // Add self to member list
-    memberNode->memberList.emplace_back(id, port, memberNode->heartbeat, par->getcurrtime());
 
     return 0;
 }
@@ -247,122 +215,86 @@ void MP1Node::checkMessages() {
  * DESCRIPTION: Message handler for different message types
  */
 bool MP1Node::recvCallBack(void *env, char *data, int size) {
-	MessageHdr *msg = (MessageHdr *)data;
-    Address *source = (Address *)(msg + 1);
-
-    switch(msg->msgType) {
+    MessageHdr *msg = (MessageHdr *)data;
+    Address *addr = (Address *)(msg + 1);
+    long *heartbeat = (long *)data;
+    
+    switch (msg->msgType) {
         case JOINREQ: {
-            // Add the new node to the member list
-            long heartbeat = *(long *)data;
-            int id;
-            short port;
-            memcpy(&id, &source->addr[0], sizeof(int));
-            memcpy(&port, &source->addr[4], sizeof(short));
+            // Send a call back indicating successful introduction
+            MessageHdr *callBack;
+            size_t msgsize = sizeof(MessageHdr) + sizeof(memberNode->addr) + sizeof(long) + 1;
+            callBack = (MessageHdr *) malloc(msgsize * sizeof(char));
 
-            auto it = lower_bound(memberNode->memberList.begin(), memberNode->memberList.end(), id, compareMemberToId);
-            // If the node already exists, update its heartbeat
-            // Note: this shouldn't be the case, but it's better to be safe
-            if (it != memberNode->memberList.end() && it->getid() == id) it->setheartbeat(heartbeat);
+            callBack->msgType = JOINREP;
+            memcpy((char *)(callBack+1), &memberNode->addr, sizeof(memberNode->addr));
+            memcpy((char *)(callBack+1) + 1 + sizeof(memberNode->addr), &memberNode->heartbeat, sizeof(long));
 
-            memberNode->memberList.emplace(it, id, port, heartbeat, par->getcurrtime());
-
-            // Send back a JOINREP message, indicating successful introduction
-            // Include the member list for them to copy
-            int n = memberNode->memberList.size();
-            size_t listsize = sizeof(int) + sizeof(short) + sizeof(long) + sizeof(long);
-            size_t repsize = sizeof(MessageHdr) + sizeof(int) + (n * listsize);
-            
-            MessageHdr *joinrep = (MessageHdr *)malloc(repsize * sizeof(char));
-            joinrep->msgType = JOINREP;
-
-            memcpy((char *)(joinrep + 1), &n, sizeof(int));
-
-            int offset = sizeof(int);
-            for (auto it = memberNode->memberList.begin(); it != memberNode->memberList.end(); it++) {
-                memcpy((char *)(joinrep + 1) + offset, &it->id, sizeof(int));
-                offset += sizeof(int);
-                memcpy((char *)(joinrep + 1) + offset, &it->port, sizeof(short));
-                offset += sizeof(short);
-                memcpy((char *)(joinrep + 1) + offset, &it->heartbeat, sizeof(long));
-                offset += sizeof(long);
-                memcpy((char *)(joinrep + 1) + offset, &it->timestamp, sizeof(long));
-                offset += sizeof(long);
-            }
 #ifdef DEBUGLOG
-            log->LOG(&memberNode->addr, "Sending JOINREP");
+            log->LOG(&memberNode->addr, "Sending JOINREP call back");
 #endif
-            emulNet->ENsend(&memberNode->addr, source, (char *)joinrep, repsize);
+            emulNet->ENsend(&memberNode->addr, addr, (char *)callBack, msgsize);
+
+            // Add the new node to this node's member list
+            updateMemberList(addr, heartbeat);
+
             break;
         }
         case JOINREP: {
+            // Confirm successful introduction to the group
             memberNode->inGroup = true;
-            // Copy the introducer's member list (no break runs the GOSSIP case)
-        }
-        case GOSSIP: {
-            updateMemberList(data);
+
+            // Add the introducer to this node's member list
+            updateMemberList(addr, heartbeat);
+
             break;
         }
-        default: {
+        case GOSSIP: {
+            // Update this node's member list with the sender's heartbeat
+            updateMemberList(addr, heartbeat);
+
+            break; 
+        }
+        default:
 #ifdef DEBUGLOG
             log->LOG(&memberNode->addr, "Received an unknown message");
-#endif       
-        }
-    }
-#ifdef DEBUGLOG
-    logMemberList(log, &memberNode->addr, &memberNode->memberList);
 #endif
+    }
+
+    free(msg);
 }
 
 /**
- * FUNCTION NAME: updateMemberList 
+ * FUNCTION NAME: updateMemberList
  * 
- * DESCRIPTION: Extract an incoming member list from message data.
- *              Update own member list with new entries, and the latest heartbeat
- *              information for every member.
- */
-void MP1Node::updateMemberList(char *data) {
-    int n;
-    memcpy(&n, data + sizeof(MessageHdr), sizeof(int));
-    
-    auto it = memberNode->memberList.begin();
-    int offset = sizeof(int);
-    for (int i = 0; i < n; i++) {
-        int id;
-        short port;
-        long heartbeat, timestamp;
+ * DESCRIPTION: Update a given node's heartbeat in your membership list, or add the node
+ *              to the list if not included already              
+*/
+bool MP1Node::updateMemberList(Address *addr, long *heartbeat) {
+    int id = 0;
+    short port;
+    memcpy(&id, &addr->addr[0], sizeof(int));
+    memcpy(&port, &addr->addr[4], sizeof(short));
 
-        memcpy(&id, data + sizeof(MessageHdr) + offset, sizeof(int));
-        offset += sizeof(int);
-        memcpy(&port, data + sizeof(MessageHdr) + offset, sizeof(short));
-        offset += sizeof(short);
-        memcpy(&heartbeat, data + sizeof(MessageHdr) + offset, sizeof(long));
-        offset += sizeof(long);
-        memcpy(&timestamp, data + sizeof(MessageHdr) + offset, sizeof(long));
-        offset += sizeof(long);
-
-        /* It is unknown where incoming entries should be inserted, since
-            * there are existing entries already. 
-            * Fortunately, member lists are sorted by id.
-            * 
-            * it = lower_bound(it) guarantees that the iterator only moves forward
-            * without the need to restart from the beginning. 
-        */
-        it = lower_bound(it, memberNode->memberList.end(), id, compareMemberToId);
-
-        if (id == it->getid()) {
-            if (heartbeat > it->getheartbeat()) it->setheartbeat(heartbeat);
-            else {} // Ignore existing up-to-date entry
-        } else {
-            /*
-             * The incoming entry is guaranteed to have a smaller id than 
-             * what the iterator is pointing at. This means that the member
-             * hasn't been added to this node's member list.
-             * Iterator must be refreshed after inserting a new element
-             */
-            it = memberNode->memberList.emplace(it, id, port, heartbeat, timestamp);    
+    for (auto it = memberNode->memberList.begin(); it != memberNode->memberList.end(); it++) {
+        if (it->getid() == id && it->getport() == port) {
+            if (*heartbeat > it->getheartbeat()) {
+                it->setheartbeat(*heartbeat);
+                it->settimestamp(par->getcurrtime());
+                
+                return true;
+            } else return false;
         }
     }
+
+    // Node doesn't exist in the member list. Create an entry for it
+    memberNode->memberList.emplace_back(id, port, *heartbeat, par->getcurrtime());
+#ifdef DEBUGLOG
+    log->logNodeAdd(&memberNode->addr, addr);
+#endif
+    return true;
 }
+
 
 /**
  * FUNCTION NAME: nodeLoopOps

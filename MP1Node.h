@@ -71,7 +71,9 @@ public:
 	void nodeLoop();
 	void checkMessages();
 	bool recvCallBack(void *env, char *data, int size);
-	bool updateMemberList(Address *addr, long *heartbeat);
+	void updateMemberList(char *data);
+	MessageHdr * createGossipMsg(size_t newsize);
+	size_t gossipMsgSize();
 	void nodeLoopOps();
 	int isNullAddress(Address *addr);
 	Address getJoinAddress();
