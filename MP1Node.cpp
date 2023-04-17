@@ -268,26 +268,11 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
 
             // Send back a JOINREP message, indicating successful introduction
             // Include the member list for them to copy
-            int n = memberNode->memberList.size();
-            size_t listsize = sizeof(int) + sizeof(short) + sizeof(long) + sizeof(long);
-            size_t repsize = sizeof(MessageHdr) + sizeof(int) + (n * listsize);
-            
-            MessageHdr *joinrep = (MessageHdr *)malloc(repsize * sizeof(char));
+
+            size_t repsize = gossipMsgSize();
+            MessageHdr *joinrep = createGossipMsg(repsize);
             joinrep->msgType = JOINREP;
 
-            memcpy((char *)(joinrep + 1), &n, sizeof(int));
-
-            int offset = sizeof(int);
-            for (auto it = memberNode->memberList.begin(); it != memberNode->memberList.end(); it++) {
-                memcpy((char *)(joinrep + 1) + offset, &it->id, sizeof(int));
-                offset += sizeof(int);
-                memcpy((char *)(joinrep + 1) + offset, &it->port, sizeof(short));
-                offset += sizeof(short);
-                memcpy((char *)(joinrep + 1) + offset, &it->heartbeat, sizeof(long));
-                offset += sizeof(long);
-                memcpy((char *)(joinrep + 1) + offset, &it->timestamp, sizeof(long));
-                offset += sizeof(long);
-            }
 #ifdef DEBUGLOG
             log->LOG(&memberNode->addr, "Sending JOINREP");
 #endif
@@ -362,6 +347,45 @@ void MP1Node::updateMemberList(char *data) {
             it = memberNode->memberList.emplace(it, id, port, heartbeat, timestamp);    
         }
     }
+}
+
+/**
+ * FUNCTION NAME: createGossipMsg
+ *
+ * DESCRIPTION: Creates a message with the member list attached as data.
+ */
+MessageHdr * MP1Node::createGossipMsg(size_t msgsize) {
+    int n = memberNode->memberList.size();
+    
+    MessageHdr *msg = (MessageHdr *)malloc(msgsize * sizeof(char));
+
+    memcpy((char *)(msg + 1), &n, sizeof(int));
+
+    int offset = sizeof(int);
+    for (auto it = memberNode->memberList.begin(); it != memberNode->memberList.end(); it++) {
+        memcpy((char *)(msg + 1) + offset, &it->id, sizeof(int));
+        offset += sizeof(int);
+        memcpy((char *)(msg + 1) + offset, &it->port, sizeof(short));
+        offset += sizeof(short);
+        memcpy((char *)(msg + 1) + offset, &it->heartbeat, sizeof(long));
+        offset += sizeof(long);
+        memcpy((char *)(msg + 1) + offset, &it->timestamp, sizeof(long));
+        offset += sizeof(long);
+    }
+    return msg;
+}
+
+/**
+ * FUNCTION NAME: gossipMsgSize
+ *
+ * DESCRIPTION: Returns the size of a message with a member list attached.
+ */
+size_t MP1Node::gossipMsgSize() {
+    int n = memberNode->memberList.size();
+    size_t listsize = sizeof(int) + sizeof(short) + sizeof(long) + sizeof(long);
+    size_t msgsize = sizeof(MessageHdr) + sizeof(int) + (n * listsize);
+
+    return msgsize;
 }
 
 /**
