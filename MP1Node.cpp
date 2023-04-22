@@ -252,11 +252,13 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
     switch(msg->msgType) {
         case JOINREQ: {
             // Add the new node to the member list
-            long heartbeat = *(long *)data;
+            
             int id;
             short port;
+            long heartbeat;
             memcpy(&id, &source->addr[0], sizeof(int));
             memcpy(&port, &source->addr[4], sizeof(short));
+            memcpy(&heartbeat, data + sizeof(MessageHdr) + sizeof(int) + sizeof(short), sizeof(long));
 
             auto it = lower_bound(memberNode->memberList.begin(), memberNode->memberList.end(), id, compareMemberToId);
             // If the node already exists, update its heartbeat
@@ -293,7 +295,7 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
         }
     }
 #ifdef DEBUGLOG
-    logMemberList(log, &memberNode->addr, &memberNode->memberList);
+    // logMemberList(log, &memberNode->addr, &memberNode->memberList);
 #endif
 }
 
@@ -398,10 +400,11 @@ size_t MP1Node::gossipMsgSize() {
  * 				Propagate your membership list
  */
 void MP1Node::nodeLoopOps() {
-    if (memberNode->pingCounter == 0) {
-        int selfId;
-        memcpy(&selfId, &memberNode->addr.addr[0], sizeof(int));
+    int selfId;
+    memcpy(&selfId, &memberNode->addr.addr[0], sizeof(int));
 
+    // Periodically gossip own member list to other members
+    if (memberNode->pingCounter == 0) {
         // Update the heartbeat of self in the member list too
         auto self = lower_bound(memberNode->memberList.begin(), memberNode->memberList.end(), selfId, compareMemberToId);
         self->setheartbeat(++memberNode->heartbeat);
@@ -413,7 +416,7 @@ void MP1Node::nodeLoopOps() {
             if (it->getid() != selfId) {
                 Address toaddr(to_string(it->getid()) + ":" + to_string(it->getport()));
 #ifdef DEBUGLOG
-                log->LOG(&memberNode->addr, "Sending gossip");
+                // log->LOG(&memberNode->addr, "Sending GOSSIP");
 #endif
                 emulNet->ENsend(&memberNode->addr, &toaddr, (char *)gossipmsg, msgsize);
             }
@@ -424,7 +427,23 @@ void MP1Node::nodeLoopOps() {
         memberNode->pingCounter--;
     }
 
-    return;
+    // Check for failed members
+    auto it = memberNode->memberList.begin();
+    while (it != memberNode->memberList.end()) {
+        if (it->getid() != selfId) {
+            if (memberNode->timeOutCounter - it->gettimestamp() > TREMOVE) {
+                Address removeaddr(to_string(it->getid()) + ":" + to_string(it->getport()));
+#ifdef DEBUGLOG
+                log->logNodeRemove(&memberNode->addr, &removeaddr);
+#endif
+                it = memberNode->memberList.erase(it);
+                continue;
+            }
+        }
+        it++;
+    }
+
+    memberNode->timeOutCounter++;
 }
 
 /**
