@@ -140,7 +140,6 @@ int MP1Node::initThisNode(Address *joinaddr) {
 
     // Add self to member list
     memberNode->memberList.emplace_back(id, port, memberNode->heartbeat, par->getcurrtime());
-    memberNode->myPos = memberNode->memberList.begin();
     return 0;
 }
 
@@ -347,9 +346,6 @@ void MP1Node::updateMemberList(char *data) {
             it = memberNode->memberList.emplace(it, id, port, heartbeat, timestamp);    
         }
     }
-
-    // Update the myPos iterator, since adding entries invalidates all existing iterators
-    updateMyPos();
 }
 
 /**
@@ -389,17 +385,6 @@ size_t MP1Node::gossipMsgSize() {
     size_t msgsize = sizeof(MessageHdr) + sizeof(int) + (n * listsize);
 
     return msgsize;
-}
-
-/**
- * FUNCTION NAME: updateMyPos
- *
- * DESCRIPTION: Updates the iterator pointing to self in the member list.
- *              This is necessary because adding and removing elements will
- *              invalidate all existing iterators.
- */
-void MP1Node::updateMyPos() {
-    
 }
 
 /**
