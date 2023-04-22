@@ -275,7 +275,7 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
             joinrep->msgType = JOINREP;
 
 #ifdef DEBUGLOG
-            log->LOG(&memberNode->addr, "Sending JOINREP");
+            // log->LOG(&memberNode->addr, "Sending JOINREP");
 #endif
             emulNet->ENsend(&memberNode->addr, source, (char *)joinrep, repsize);
             break;
@@ -448,6 +448,8 @@ void MP1Node::nodeLoopOps() {
     } else {
         memberNode->pingCounter--;
     }
+
+    // logMemberList(log, &memberNode->addr, &memberNode->memberList);
 }
 
 /**
