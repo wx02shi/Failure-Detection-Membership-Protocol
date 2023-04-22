@@ -74,6 +74,7 @@ public:
 	void updateMemberList(char *data);
 	MessageHdr * createGossipMsg(size_t newsize);
 	size_t gossipMsgSize();
+	void updateMyPos();
 	void nodeLoopOps();
 	int isNullAddress(Address *addr);
 	Address getJoinAddress();
