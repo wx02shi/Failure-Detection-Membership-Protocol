@@ -334,7 +334,10 @@ void MP1Node::updateMemberList(char *data) {
         it = lower_bound(it, memberNode->memberList.end(), id, compareMemberToId);
 
         if (id == it->getid()) {
-            if (heartbeat > it->getheartbeat()) it->setheartbeat(heartbeat);
+            if (heartbeat > it->getheartbeat()) {
+                it->setheartbeat(heartbeat);
+                it->settimestamp(par->getcurrtime());
+            }
             else {} // Ignore existing up-to-date entry
         } else {
             /*
@@ -343,7 +346,7 @@ void MP1Node::updateMemberList(char *data) {
              * hasn't been added to this node's member list.
              * Iterator must be refreshed after inserting a new element
              */
-            it = memberNode->memberList.emplace(it, id, port, heartbeat, timestamp);    
+            it = memberNode->memberList.emplace(it, id, port, heartbeat, par->getcurrtime());    
         }
     }
 }
@@ -396,13 +399,18 @@ size_t MP1Node::gossipMsgSize() {
  */
 void MP1Node::nodeLoopOps() {
     if (memberNode->pingCounter == 0) {
+        int selfId;
+        memcpy(&selfId, &memberNode->addr.addr[0], sizeof(int));
+
         // Update the heartbeat of self in the member list too
-        memberNode->myPos->setheartbeat(++memberNode->heartbeat);
+        auto self = lower_bound(memberNode->memberList.begin(), memberNode->memberList.end(), selfId, compareMemberToId);
+        self->setheartbeat(++memberNode->heartbeat);
 
         size_t msgsize = gossipMsgSize();
         MessageHdr *gossipmsg = createGossipMsg(msgsize);
+        gossipmsg->msgType = GOSSIP;
         for (auto it = memberNode->memberList.begin(); it != memberNode->memberList.end(); it++) {
-            if (it != memberNode->myPos) {
+            if (it->getid() != selfId) {
                 Address toaddr(to_string(it->getid()) + ":" + to_string(it->getport()));
 #ifdef DEBUGLOG
                 log->LOG(&memberNode->addr, "Sending gossip");
