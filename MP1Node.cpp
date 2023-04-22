@@ -140,7 +140,7 @@ int MP1Node::initThisNode(Address *joinaddr) {
 
     // Add self to member list
     memberNode->memberList.emplace_back(id, port, memberNode->heartbeat, par->getcurrtime());
-
+    memberNode->myPos = memberNode->memberList.begin();
     return 0;
 }
 
@@ -347,6 +347,9 @@ void MP1Node::updateMemberList(char *data) {
             it = memberNode->memberList.emplace(it, id, port, heartbeat, timestamp);    
         }
     }
+
+    // Update the myPos iterator, since adding entries invalidates all existing iterators
+    updateMyPos();
 }
 
 /**
@@ -389,6 +392,17 @@ size_t MP1Node::gossipMsgSize() {
 }
 
 /**
+ * FUNCTION NAME: updateMyPos
+ *
+ * DESCRIPTION: Updates the iterator pointing to self in the member list.
+ *              This is necessary because adding and removing elements will
+ *              invalidate all existing iterators.
+ */
+void MP1Node::updateMyPos() {
+    
+}
+
+/**
  * FUNCTION NAME: nodeLoopOps
  *
  * DESCRIPTION: Check if any node hasn't responded within a timeout period and then delete
@@ -396,10 +410,26 @@ size_t MP1Node::gossipMsgSize() {
  * 				Propagate your membership list
  */
 void MP1Node::nodeLoopOps() {
+    if (memberNode->pingCounter == 0) {
+        // Update the heartbeat of self in the member list too
+        memberNode->myPos->setheartbeat(++memberNode->heartbeat);
 
-	/*
-	 * Your code goes here
-	 */
+        size_t msgsize = gossipMsgSize();
+        MessageHdr *gossipmsg = createGossipMsg(msgsize);
+        for (auto it = memberNode->memberList.begin(); it != memberNode->memberList.end(); it++) {
+            if (it != memberNode->myPos) {
+                Address toaddr(to_string(it->getid()) + ":" + to_string(it->getport()));
+#ifdef DEBUGLOG
+                log->LOG(&memberNode->addr, "Sending gossip");
+#endif
+                emulNet->ENsend(&memberNode->addr, &toaddr, (char *)gossipmsg, msgsize);
+            }
+        }
+
+        memberNode->pingCounter = TFAIL;
+    } else {
+        memberNode->pingCounter--;
+    }
 
     return;
 }
