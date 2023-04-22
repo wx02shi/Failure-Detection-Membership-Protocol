@@ -335,20 +335,22 @@ void MP1Node::updateMemberList(char *data) {
         */
         it = lower_bound(it, memberNode->memberList.end(), id, compareMemberToId);
 
-        if (id == it->getid()) {
-            if (heartbeat > it->getheartbeat()) {
-                it->setheartbeat(heartbeat);
-                it->settimestamp(par->getcurrtime());
+        if (heartbeat >= 0) { // Ignore members that were marked for removal
+            if (id == it->getid()) {
+                if (it->getheartbeat() >= 0 && heartbeat > it->getheartbeat()) {
+                    it->setheartbeat(heartbeat);
+                    it->settimestamp(par->getcurrtime());
+                }
+                else {} // Ignore existing up-to-date entry
+            } else {
+                /*
+                * The incoming entry is guaranteed to have a smaller id than 
+                * what the iterator is pointing at. This means that the member
+                * hasn't been added to this node's member list.
+                * Iterator must be refreshed after inserting a new element
+                */
+                it = memberNode->memberList.emplace(it, id, port, heartbeat, par->getcurrtime());
             }
-            else {} // Ignore existing up-to-date entry
-        } else {
-            /*
-             * The incoming entry is guaranteed to have a smaller id than 
-             * what the iterator is pointing at. This means that the member
-             * hasn't been added to this node's member list.
-             * Iterator must be refreshed after inserting a new element
-             */
-            it = memberNode->memberList.emplace(it, id, port, heartbeat, par->getcurrtime());    
         }
     }
 }
@@ -403,6 +405,26 @@ void MP1Node::nodeLoopOps() {
     int selfId;
     memcpy(&selfId, &memberNode->addr.addr[0], sizeof(int));
 
+    // Check for failed members
+    auto it = memberNode->memberList.begin();
+    while (it != memberNode->memberList.end()) {
+        if (it->getid() != selfId) {
+            if (it->getheartbeat() < 0 && memberNode->timeOutCounter - it->gettimestamp() > TREMOVE + TFAIL) {
+                Address removeaddr(to_string(it->getid()) + ":" + to_string(it->getport()));
+#ifdef DEBUGLOG
+                log->logNodeRemove(&memberNode->addr, &removeaddr);
+#endif
+                it = memberNode->memberList.erase(it);
+                continue;
+            } else if (it->getheartbeat() >= 0 && memberNode->timeOutCounter - it->gettimestamp() > TFAIL) {
+                it->setheartbeat(-1); // mark as failed, but wait TREMOVE time before removing
+            }
+        }
+        it++;
+    }
+
+    memberNode->timeOutCounter++;
+
     // Periodically gossip own member list to other members
     if (memberNode->pingCounter == 0) {
         // Update the heartbeat of self in the member list too
@@ -422,28 +444,10 @@ void MP1Node::nodeLoopOps() {
             }
         }
 
-        memberNode->pingCounter = TFAIL;
+        memberNode->pingCounter = TGOSSIP;
     } else {
         memberNode->pingCounter--;
     }
-
-    // Check for failed members
-    auto it = memberNode->memberList.begin();
-    while (it != memberNode->memberList.end()) {
-        if (it->getid() != selfId) {
-            if (memberNode->timeOutCounter - it->gettimestamp() > TREMOVE) {
-                Address removeaddr(to_string(it->getid()) + ":" + to_string(it->getport()));
-#ifdef DEBUGLOG
-                log->logNodeRemove(&memberNode->addr, &removeaddr);
-#endif
-                it = memberNode->memberList.erase(it);
-                continue;
-            }
-        }
-        it++;
-    }
-
-    memberNode->timeOutCounter++;
 }
 
 /**
